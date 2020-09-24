@@ -140,9 +140,7 @@ public class BPlusTree {
         typecheck(key);
         // TODO(proj2): implement
         // TODO(proj4_part3): B+ tree locking
-
-        LeafNode lnode = root.get(key);
-        return lnode.getKey(key);
+        return (root.get(key)).getKey(key);
     }
 
     /**
@@ -245,8 +243,13 @@ public class BPlusTree {
         // Note: You should NOT update the root variable directly.
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
+
+        // catch the poped pair
         Optional<Pair<DataBox, Long>> pair = root.put(key, rid);
+        // if overflow
         if (pair.isPresent()) {
+            // move the extra (key, rid + old root)  to new lists
+            // which is also the new root of current node
             List<DataBox> newK = new ArrayList<>();
             List<Long> newC = new ArrayList<>();
             newK.add(pair.get().getFirst());
@@ -285,10 +288,13 @@ public class BPlusTree {
         if (scanAll().hasNext()) {
             throw new BPlusTreeException("Error: The tree is not empty!");
         }
-
+        //go over all the data
         while (data.hasNext()) {
-            Optional<Pair<DataBox, Long>> pair = this.root.bulkLoad(data, fillFactor);
+            // catch poped pair
+            Optional<Pair<DataBox, Long>> pair = root.bulkLoad(data, fillFactor);
+            // if overflow
             if (pair.isPresent()) {
+                // like in the inner node
                 List<DataBox> newK = new ArrayList<>();
                 List<Long> newC = new ArrayList<>();
                 newK.add(pair.get().getFirst());
@@ -440,15 +446,18 @@ public class BPlusTree {
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
+            // has next or has right sib
             return cur.hasNext() || lnode.getRightSibling().isPresent();
         }
 
         @Override
         public RecordId next() {
             // TODO(proj2): implement
+            // if has next
             if (cur.hasNext()) {
                 return cur.next();
             }
+            // if no next, go to right sib, if exists
             Optional<LeafNode> rightsib = lnode.getRightSibling();
             if (rightsib.isPresent()) {
                 lnode = rightsib.get();
@@ -457,6 +466,7 @@ public class BPlusTree {
                     return cur.next();
                 }
             }
+            // neither next or rightsib exist
             throw new NoSuchElementException();
         }
     }

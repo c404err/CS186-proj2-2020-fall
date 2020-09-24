@@ -108,14 +108,16 @@ class InnerNode extends BPlusNode {
     @Override
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid)
             throws BPlusTreeException {
-
+        //find the node that key belongs to
         BPlusNode cnode = getChild(numLessThanEqual(key, keys));
-        // bot to top
+        // put (key, rid) pair to that node, if there is overflow, pair is not empty
         Optional<Pair<DataBox, Long>> pair = cnode.put(key, rid);
 
         if (pair.isPresent()) {
+            // add the poped key to inner node
             int index = InnerNode.numLessThanEqual(pair.get().getFirst(), keys);
             keys.add(index, pair.get().getFirst());
+            // add the poped rid to its children
             children.add(index+1, pair.get().getSecond());
 
             // no overflow
@@ -124,15 +126,17 @@ class InnerNode extends BPlusNode {
             }
             // overflow
             else {
-                //split into 2 sub lists
+                // similar to leaf node, move the extras to a new list
                 List<DataBox> newK = new ArrayList<>();
                 List<Long> newC = new ArrayList<>();
                 int order = metadata.getOrder();
+                // add the extra children first to make newK, newC same # of iteraton
                 newC.add(children.remove(order+1));
                 while (order+1 < keys.size()) {
                     newK.add(keys.remove(order+1));
                     newC.add(children.remove(order+1));
                 }
+                // update rightsib like in leaf node
                 DataBox newright = keys.remove(order);
                 InnerNode rightsib = new InnerNode(metadata, bufferManager, newK, newC, treeContext);
                 Long rightsibp = rightsib.getPage().getPageNum();
@@ -148,22 +152,26 @@ class InnerNode extends BPlusNode {
     @Override
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor)
-    throws BPlusTreeException {
+            throws BPlusTreeException {
         int order = metadata.getOrder();
-        Optional<Pair<DataBox, Long>> pair;
+        // import all data to leaf nodes
         while (data.hasNext() && keys.size() <= order*2) {
             BPlusNode lastC = getChild(children.size()-1);
-            pair = lastC.bulkLoad(data, fillFactor);
+            Optional<Pair<DataBox, Long>> pair = lastC.bulkLoad(data, fillFactor);
+            // if leaf node has overflow, add the poped pair to inner node
             if (pair.isPresent()) {
                 keys.add(pair.get().getFirst());
                 children.add(pair.get().getSecond());
             }
         }
-
+        // no overflow
         if (keys.size() <= order*2) {
-            pair = Optional.empty();
+            sync();
+            return Optional.empty();
         }
+        // overflow
         else {
+            // move the extras to new list
             List<DataBox> newK = new ArrayList<>();
             List<Long> newC = new ArrayList<>();
             newC.add(children.remove(order+1));
@@ -171,20 +179,21 @@ class InnerNode extends BPlusNode {
                 newK.add(keys.remove(order+1));
                 newC.add(children.remove(order+1));
             }
+            //update rightsib
             DataBox newright = keys.remove(order+1);
             InnerNode rightsib = new InnerNode(metadata, bufferManager, newK, newC, treeContext);
             Long rightsibP = rightsib.getPage().getPageNum();
-            pair = Optional.of(new Pair<>(newright, rightsibP));
+            sync();
+            return Optional.of(new Pair<>(newright, rightsibP));
         }
-
-        sync();
-        return pair;
     }
 
     // See BPlusNode.remove.
     @Override
     public void remove(DataBox key) {
         // TODO(proj2): implement
+        // find the leaf and remove key from it.
+        // dont care about key in inner node.
         LeafNode lnode = get(key);
         lnode.remove(key);
         sync();

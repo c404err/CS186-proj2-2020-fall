@@ -179,16 +179,18 @@ class LeafNode extends BPlusNode {
         List<DataBox> newK = new ArrayList<>();
         List<RecordId> newR = new ArrayList<>();
         int order = metadata.getOrder();
-        // split overflowed keys/rids into 2 sub list
+        // move extra keys/rids into another list
         while (order < keys.size()) {
             newK.add(keys.remove(order));
             newR.add(rids.remove(order));
         }
-        // new (key, rid) is the right sib of the org one
+        // new list is the right sib of the old
+        // old rightsib is the right sib of the new list
         LeafNode rightsib = new LeafNode(metadata, bufferManager, newK, newR, this.rightSibling, treeContext);
         Long rightsibP = rightsib.getPage().getPageNum();
         this.rightSibling = Optional.of(rightsibP);
         sync();
+        // the first one in the new list is the one getting poped
         return Optional.of(new Pair<>(rightsib.keys.get(0), rightsibP));
     }
 
@@ -197,8 +199,9 @@ class LeafNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor)
         throws BPlusTreeException {
+        // max load
         int max = (int)Math.ceil(2*metadata.getOrder()*fillFactor);
-
+        // add data into keys/rids
         while (data.hasNext() && keys.size() <= max) {
             Pair<DataBox, RecordId> pair = data.next();
             DataBox k = pair.getFirst();
@@ -207,19 +210,23 @@ class LeafNode extends BPlusNode {
             if (keys.contains(k)) {
                 throw new BPlusTreeException("Error: you input a duplicate key!\n");
             }
-            // add all data to internal data lists
+            // add all data to internal data lists until the internal list is one more the max;
             int ind = InnerNode.numLessThanEqual(k, keys);
             keys.add(ind, k);
             rids.add(ind, r);
         }
-
+        // no overflow
         Optional<Pair<DataBox, Long>> ans = Optional.empty();
+
         // overflow
         if (keys.size() > max) {
+            // size == max + 1, so move out the last element
             List<DataBox> newK = new ArrayList<>();
             List<RecordId> newR = new ArrayList<>();
             newK.add(keys.remove(keys.size() - 1));
             newR.add(rids.remove(rids.size() - 1));
+
+            // same as put, update right sib
             LeafNode rightsib = new LeafNode(metadata, bufferManager, newK, newR, this.rightSibling, treeContext);
             Long rightsibP = rightsib.getPage().getPageNum();
             this.rightSibling = Optional.of(rightsibP);
@@ -434,19 +441,22 @@ class LeafNode extends BPlusNode {
 
         Page page = bufferManager.fetchPage(treeContext, pageNum, false);
         Buffer buf = page.getBuffer();
-
+        // check node type
         byte nodeType = buf.get();
         assert(nodeType == (byte) 1);
-
+        // initialize list
         List<DataBox> keys = new ArrayList<>();
         List<RecordId> rids = new ArrayList<>();
         Optional<Long> rightsib;
+        // get rightsib page
         Long rightsibP = buf.getLong();
+        // rightsib  does not exist
         if (rightsibP == -1) {
             rightsib = Optional.empty();
         } else {
             rightsib = Optional.of(rightsibP);
         }
+        // # of data pairs
         int n = buf.getInt();
         for (int i = 0; i < n; ++i) {
             keys.add(DataBox.fromBytes(buf, metadata.getKeySchema()));
